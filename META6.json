@@ -1,0 +1,23 @@
+{
+  "name": "Ej::OAuth",
+  "description": "OAuth 2.0 client for Raku",
+  "version": "0.1",
+  "perl": "6.*",
+  "authors": [
+    "Élerille"
+  ],
+  "auth": "github:elerille",
+  "depends": [
+    "Cro::HTTP",
+    "URL",
+    "URI::Encode"
+  ],
+  "build-depends": [],
+  "test-depends": [],
+  "provides": {
+    "Ej::OAuth": "lib/Ej/OAuth.pm6"
+  },
+  "resources": [],
+  "license": "GPL-3.0-or-later",
+  "source-url": "https://github.com/elerille/raku-ej-oauth.git"
+}
