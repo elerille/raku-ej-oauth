@@ -1,7 +1,7 @@
 {
   "name": "Ej::OAuth",
   "description": "OAuth 2.0 client for Raku",
-  "version": "0.1",
+  "version": "0.2.0",
   "perl": "6.*",
   "authors": [
     "Élerille"
@@ -13,9 +13,13 @@
     "URI::Encode"
   ],
   "build-depends": [],
-  "test-depends": [],
+  "test-depends": [
+    "Test::HTTP::Server",
+    "Test::META"
+  ],
   "provides": {
-    "Ej::OAuth": "lib/Ej/OAuth.pm6"
+    "Ej::OAuth": "lib/Ej/OAuth.pm6",
+    "X::Ej::OAuth": "lib/X/Ej/OAuth.pm6"
   },
   "resources": [],
   "license": "GPL-3.0-or-later",
