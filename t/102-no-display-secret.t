@@ -5,7 +5,7 @@ use Cro::HTTP::Router;
 
 use Ej::OAuth :ALL;
 
-plan 8;
+plan 9;
 
 #my Int:D $server-port = get-unused-port;
 #my Int:D $client-port = get-unused-port;
@@ -38,5 +38,9 @@ is $r.token, $expected-token, "token is realy stored";
 unlike $r.gist, /$expected-token/, "token doesn't show in Authorization.gist";
 unlike $r.Str, /$expected-token/, "token doesn't show in Authorization.Str";
 unlike $r.raku, /$expected-token/, "token doesn't show in Authorization.raku";
+
+
+flunk "TODO: Test if refresh-token doesn't show in *.gist, *.Str and *.raku";
+
 
 done-testing;

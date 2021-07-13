@@ -4,17 +4,17 @@ unit class X::Ej::OAuth is Exception;
 enum Type <AccessDenied InvalidClient InvalidGrant InvalidRequest InvalidScope Other ServerError
            TemporarilyUnavailable UnauthorizedClient UnsupportedGrantType UnsupportedResponseType>;
 
-has Type:D $type is required;
-has Str $description;
-has Str $uri;
+has Type:D $.type is required;
+has Str $.description;
+has Str $.uri;
 
 method new(::?CLASS:U:
            Str:D :$error!,
-           Str :$error_description,
+           Str :$error_description is copy,
            Str :$error_uri
            )
 {
-    my Type $type = do given $error {
+    my Type:D $type = do given $error {
         when 'access_denied' { X::Ej::OAuth::Type::AccessDenied }
         when 'invalid_client' { X::Ej::OAuth::Type::InvalidClient }
         when 'invalid_grant' { X::Ej::OAuth::Type::InvalidGrant }
@@ -26,6 +26,9 @@ method new(::?CLASS:U:
         when 'unsupported_grant_type' { X::Ej::OAuth::Type::UnsupportedGrantType }
         when 'unsupported_response_type' { X::Ej::OAuth::Type::UnsupportedResponseType }
         default { X::Ej::OAuth::Type::Other }
+    }
+    if $type ~~ X::Ej::OAuth::Type::Other {
+        $error_description = $error ~ ": " ~ ($error_description // "");
     }
     self.bless: :$type, :description($error_description), :uri($error_uri);
 }

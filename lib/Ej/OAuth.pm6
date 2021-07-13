@@ -43,7 +43,7 @@ has Str:D $.endpoint-authorization is required;
 has Str:D $.endpoint-token is required;
 
 #| Endpoint for Authorization Server redirect User Agent after authenticate it
-has Str:D $.endpoint-redirection is required;
+has Str $.endpoint-redirection;
 
 has Str:D $.client-id is required;
 has Str:D $.client-secret is required;
@@ -98,9 +98,10 @@ method authorization(::?CLASS:D:
     };
     my %query = :$response_type,
                 :client_id($!client-id),
-                :redirect_uri($!endpoint-redirection),
-                :scope($scope.join(' ')),
+#                :scope($scope.keys.join(' ')),
                 :$state;
+    %query<redirect_uri> = $!endpoint-redirection with $!endpoint-redirection;
+    %query<scope> = $scope.keys.join(' ') if $scope;
     for %query.values -> $v is rw {
         $v = uri_encode_component $v;
     }
@@ -113,6 +114,7 @@ method authorization(::?CLASS:D:
     return $promise;
 }
 
+#| Die if $state is false or isn't present. In other case, the AuthorizationPromise is broke
 method authorization-response(::?CLASS:D:
                               Str:D :$state!,
                               *%args
@@ -122,6 +124,11 @@ method authorization-response(::?CLASS:D:
         my Ej::OAuth::AuthorizationPromise:D $promise = %!emitted-promise{$state};
         %!emitted-promise{$state}:delete;
         self.validate-authorization-promise: $promise, |%args;
+        CATCH {
+            when Exception {
+                $promise.break: $_;
+            }
+        }
     } else {
         die "Receive response with unknown state, please log this error";
     }
@@ -135,11 +142,6 @@ multi method validate-authorization-promise(::?CLASS:D:
 {
     my %result = self.access-token-request('authorization_code', :$code);
     samewith $promise, |%result;
-    CATCH {
-        when Exception {
-            $promise.break: $_;
-        }
-    }
 }
 #| if response_type eq 'token' in authorization request
 multi method validate-authorization-promise(::?CLASS:D:

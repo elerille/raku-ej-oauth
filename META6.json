@@ -9,7 +9,7 @@
   "auth": "github:elerille",
   "depends": [
     "Cro::HTTP",
-    "URL",
+    "URL:ver<0.2.1.1+>",
     "URI::Encode"
   ],
   "build-depends": [],
