@@ -3,6 +3,7 @@ use Cro::HTTP::Router;
 use Cro::HTTP::Client;
 use URL;
 use URI::Encode;
+use JSON::Fast;
 
 use X::Ej::OAuth;
 
@@ -18,13 +19,17 @@ class Authorization is export(:class) {
     has Str:_ $.type is required;
     has Str $.refresh-token;
     has Instant $.expires;
-    has Set:D $.scope is required;
-    has Set:D $.scope-asked is required;
+    has Set:D() $.scope is required;
+    has Set:D() $.scope-asked is required;
 
     has Supplier:D $!supplier .= new;
     has Cancellation $!future-renew;
 
     our $expire-margin = 0;
+
+    method Hash(::?CLASS:D: --> Hash:D) {
+        { :$!token, :$!type, :$!refresh-token, :$!expires, :$!scope, :$!scope-asked }
+    }
 
     method !prepare-future-renew(::?CLASS:D: --> Nil) {
         self!cancel;
@@ -96,10 +101,17 @@ class Authorization is export(:class) {
         $!refresh-token = Str:U;
         $!supplier.quit: $ex;
     }
+    multi method Bool(::?CLASS:U: --> False)
+    {}
+    multi method Bool(::?CLASS:D: --> Bool:D)
+    {
+        $!token.defined;
+    }
 }
 
 class AuthorizationPromise is Promise {
     has Str $.url;
+    has Str $.name;
     has Set:D $.scope is required;
 }
 
@@ -133,6 +145,17 @@ has Cro::HTTP::Client:D $!client .= new: :content-type<application/x-www-form-ur
 has Str:D @.state-generator = lazy gather do { loop { take ('a' .. 'z').roll(25).join } };
 
 has Ej::OAuth::AuthorizationPromise:D %!emitted-promise{Str:D};
+has Ej::OAuth::Authorization:D %!authorization{Str:D};
+
+method save(::?CLASS:D: --> Str:D) {
+    to-json %!authorization.map({ .key => .value.Hash }).Hash;
+}
+method load(::?CLASS:D: Str:D $json) {
+    %!authorization = from-json($json).map({
+        .key => Authorization.new: :oauth(self), |.value.grep({.value.defined}).Hash
+    })
+}
+
 
 method raku(::?CLASS:D:) {
     "{ ::?CLASS.^name }.new("
@@ -141,6 +164,7 @@ method raku(::?CLASS:D:) {
     ~ (:$!client-type, :$!client-auth-method, :@!state-generator)».raku.join(', ')
     ~ ")";
 }
+
 
 method test-scope(::?CLASS:D:
                   $elem
@@ -154,6 +178,7 @@ method test-scope(::?CLASS:D:
 }
 
 multi method authorization(::?CLASS:D:
+                           Str $name?,
                            Str:D :$username!,
                            Str:D :$password!,
                            :@scope where { self.test-scope($_.all) },
@@ -161,26 +186,38 @@ multi method authorization(::?CLASS:D:
                            )
 {
     my $scope = @scope.Set;
-    my Ej::OAuth::AuthorizationPromise $promise .= new: :$scope;
-    my %result = self.access-token-request('password', :$username, :$password, :@scope);
-    self.validate-authorization-promise: $promise, |%result;
+    my Ej::OAuth::AuthorizationPromise $promise .= new: :$scope, :$name;
+
+    if $name.defined && %!authorization{$name} {
+        $promise.keep: %!authorization{$name};
+    } else {
+        my %result = self.access-token-request('password', :$username, :$password, :@scope);
+        self.validate-authorization-promise: $promise, |%result;
+    }
     return $promise;
 }
 
 multi method authorization(::?CLASS:D:
+                           Str $name?,
                            Bool:D :$client! where *.so,
                            :@scope where { self.test-scope($_.all) },
         --> Ej::OAuth::AuthorizationPromise:D
                            )
 {
     my $scope = @scope.Set;
-    my Ej::OAuth::AuthorizationPromise $promise .= new: :$scope;
-    my %result = self.access-token-request('client_credentials', :@scope);
-    self.validate-authorization-promise: $promise, |%result;
+    my Ej::OAuth::AuthorizationPromise $promise .= new: :$scope, :$name;
+
+    if $name.defined && %!authorization{$name} {
+        $promise.keep: %!authorization{$name};
+    } else {
+        my %result = self.access-token-request('client_credentials', :@scope);
+        self.validate-authorization-promise: $promise, |%result;
+    }
     return $promise;
 }
 
 multi method authorization(::?CLASS:D:
+                           Str $name?,
                            :@scope where { self.test-scope($_.all) },
         --> Ej::OAuth::AuthorizationPromise:D
                            )
@@ -195,7 +232,6 @@ multi method authorization(::?CLASS:D:
     };
     my %query = :$response_type,
                 :client_id($!client-id),
-                #                :scope($scope.keys.join(' ')),
                 :$state;
     %query<redirect_uri> = $!endpoint-redirection with $!endpoint-redirection;
     %query<scope> = $scope.keys.join(' ') if $scope;
@@ -204,9 +240,13 @@ multi method authorization(::?CLASS:D:
     }
     $url.=add-query: |%query;
 
-    my Ej::OAuth::AuthorizationPromise $promise .= new: :url($url.Str), :$scope;
+    my Ej::OAuth::AuthorizationPromise $promise .= new: :url($url.Str), :$scope, :$name;
 
-    %!emitted-promise{$state} = $promise;
+    if $name.defined && %!authorization{$name} {
+        $promise.keep: %!authorization{$name};
+    } else {
+        %!emitted-promise{$state} = $promise;
+    }
 
     return $promise;
 }
@@ -254,14 +294,18 @@ multi method validate-authorization-promise(::?CLASS:D:
     with $expires_in {
         $expires = now + $expires_in;
     }
-    $promise.keep: Ej::OAuth::Authorization.new: :oauth(self),
-                                                 :token($access_token),
-                                                 :type($token_type),
-                                                 :refresh-token($refresh_token),
-                                                 :$expires,
-                                                 :scope($scope.split(' ', :skip-empty).Set),
-                                                 :scope-asked($promise.scope),
-                                                 ;
+    my $auth = Ej::OAuth::Authorization.new: :oauth(self),
+                                             :token($access_token),
+                                             :type($token_type),
+                                             :refresh-token($refresh_token),
+                                             :$expires,
+                                             :scope($scope.split(' ', :skip-empty).Set),
+                                             :scope-asked($promise.scope),
+                                             ;
+    with $promise.name {
+        %!authorization{$promise.name} = $auth;
+    }
+    $promise.keep: $auth;
 }
 multi method validate-authorization-promise(::?CLASS:D:
                                             Ej::OAuth::AuthorizationPromise:D $promise,

@@ -18,5 +18,4 @@ If you use an extension, can open an issue or a pull request.
 ## TODO
  - Move todo in TODO.md
  - Add check when receive a response if this response have the same grant_type as the request.
- - Add possibility to name an authorization 
- - Add option to save and restore authorization
+ - Add test authorization named
