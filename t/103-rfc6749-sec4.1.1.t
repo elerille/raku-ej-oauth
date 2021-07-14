@@ -31,12 +31,12 @@ subtest "Simple URI to load for the user is correct", {
                               :$endpoint-redirection,
                               client-id => $expected-client-id,
                               client-secret => $expected-client-secret,
+                              client-type => Confidential,
                               ;
 
     my MyScope:D @scope = A, B;
 
-    my $authorization = $oauth.authorization: Confidential,
-                                              :@scope;
+    my $authorization = $oauth.authorization: :@scope;
 
     my URL:D $url .= new: $authorization.url;
 
@@ -75,12 +75,12 @@ subtest "Simple URI to load for the user is correct", {
                               :$endpoint-redirection,
                               client-id => $expected-client-id,
                               client-secret => $expected-client-secret,
+                              client-type => Confidential,
                               ;
 
     my MyScope:D @scope = A, B;
 
-    my $authorization = $oauth.authorization: Confidential,
-                                              :@scope;
+    my $authorization = $oauth.authorization: :@scope;
 
     my URL:D $url .= new: $authorization.url;
 

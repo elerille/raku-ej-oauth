@@ -12,23 +12,94 @@ enum ClientType is export(:enum) <Confidential Public>;
 enum ClientAuthMethod is export(:enum) <None Basic Body>;
 
 class Authorization is export(:class) {
-    has Str:D $.token is required;
-    has Str:D $.type is required;
-    has $.expires;
+    has Ej::OAuth:D $!oauth is built is required;
+
+    has Str:_ $.token is required;
+    has Str:_ $.type is required;
+    has Str $.refresh-token;
+    has Instant $.expires;
     has Set:D $.scope is required;
     has Set:D $.scope-asked is required;
 
+    has Supplier:D $!supplier .= new;
+    has Cancellation $!future-renew;
 
-    method raku(::?CLASS:D:) {
+    our $expire-margin = 0;
+
+    method !prepare-future-renew(::?CLASS:D: --> Nil) {
+        self!cancel;
+        with $!expires {
+            $!future-renew = $*SCHEDULER.cue: -> { self.renew },
+                                              :at(max now, $!expires - $expire-margin);
+        }
+    }
+    method !cancel(::?CLASS:D: --> Nil) {
+        with $!future-renew { .cancel }
+        $!future-renew = Cancellation;
+    }
+
+    submethod TWEAK {
+        self!prepare-future-renew;
+    }
+
+    method raku(::?CLASS:D: --> Str:D) {
         "{ ::?CLASS.^name }.new("
         ~ ":token(???), "
-        ~ (:$!type, :$!expires, :$!scope, :$!scope-asked)».raku.join(', ')
+        ~ (:$!type,)».raku.join(', ')
+        ~ ($!refresh-token.defined ?? ", :refresh-token(???), " !! ", :refresh-token(Str), ")
+        ~ (:$!expires, :$!scope, :$!scope-asked)».raku.join(', ')
         ~ ")";
+    }
+
+    method tap(::?CLASS:D:
+               *@args,
+               *%kvargs)
+    {
+        $!supplier.Supply.tap: |@args, |%kvargs;
+    }
+
+    method renew(::?CLASS:D: --> Nil)
+    {
+        my %data = $!oauth.access-token-request: 'refresh_token',
+                                                 :$!refresh-token;
+        with %data<error> {
+            self.quit: X::Ej::OAuth.new: |%data;
+        } else {
+            $!token = %data<access_token>;
+            $!type = %data<token_type>;
+            with %data<expires_in> { $!expires = now + $_; }
+            with %data<refresh_token> { $!refresh-token = $_; }
+            with %data<scope> { $!scope = .split(' ', :skip-empty).Set }
+        }
+        CATCH {
+            when Exception {
+                self.quit: $_;
+            }
+        }
+        self!prepare-future-renew;
+        $!supplier.emit(self);
+    }
+
+    method done(::?CLASS:D: --> Nil)
+    {
+        self!cancel;
+        $!token = Str:U;
+        $!type = Str:U;
+        $!refresh-token = Str:U;
+        $!supplier.done;
+    }
+    method quit(::?CLASS:D: $ex --> Nil)
+    {
+        self!cancel;
+        $!token = Str:U;
+        $!type = Str:U;
+        $!refresh-token = Str:U;
+        $!supplier.quit: $ex;
     }
 }
 
 class AuthorizationPromise is Promise {
-    has Str:D $.url is required;
+    has Str $.url;
     has Set:D $.scope is required;
 }
 
@@ -82,23 +153,49 @@ method test-scope(::?CLASS:D:
     }
 }
 
-method authorization(::?CLASS:D:
-                     Ej::OAuth::ClientType:D $client-type = $!client-type,
-                     :@scope where { self.test-scope($_.all) },
+multi method authorization(::?CLASS:D:
+                           Str:D :$username!,
+                           Str:D :$password!,
+                           :@scope where { self.test-scope($_.all) },
         --> Ej::OAuth::AuthorizationPromise:D
-                     )
+                           )
+{
+    my $scope = @scope.Set;
+    my Ej::OAuth::AuthorizationPromise $promise .= new: :$scope;
+    my %result = self.access-token-request('password', :$username, :$password, :@scope);
+    self.validate-authorization-promise: $promise, |%result;
+    return $promise;
+}
+
+multi method authorization(::?CLASS:D:
+                           Bool:D :$client! where *.so,
+                           :@scope where { self.test-scope($_.all) },
+        --> Ej::OAuth::AuthorizationPromise:D
+                           )
+{
+    my $scope = @scope.Set;
+    my Ej::OAuth::AuthorizationPromise $promise .= new: :$scope;
+    my %result = self.access-token-request('client_credentials', :@scope);
+    self.validate-authorization-promise: $promise, |%result;
+    return $promise;
+}
+
+multi method authorization(::?CLASS:D:
+                           :@scope where { self.test-scope($_.all) },
+        --> Ej::OAuth::AuthorizationPromise:D
+                           )
 {
     my $scope = @scope.Set;
     my URL:D $url .= new: $!endpoint-authorization;
     my Str:D $state = @!state-generator.shift;
-    my Str:D $response_type = do given $client-type {
+    my Str:D $response_type = do given $!client-type {
         when Confidential { "code" }
         when Public { "token" }
-        default { die "Unsupported client-type ($client-type), please open an issue on Ej::Oauth github" }
+        default { die "Unsupported client-type ($!client-type), please open an issue on Ej::Oauth github" }
     };
     my %query = :$response_type,
                 :client_id($!client-id),
-#                :scope($scope.keys.join(' ')),
+                #                :scope($scope.keys.join(' ')),
                 :$state;
     %query<redirect_uri> = $!endpoint-redirection with $!endpoint-redirection;
     %query<scope> = $scope.keys.join(' ') if $scope;
@@ -148,16 +245,19 @@ multi method validate-authorization-promise(::?CLASS:D:
                                             Ej::OAuth::AuthorizationPromise:D $promise,
                                             Str:D :$access_token!,
                                             Str:D :$token_type!,
+                                            Str :$refresh_token,
                                             :$expires_in,
                                             Str :$scope = ""
         --> Nil) is implementation-detail
 {
-    my $expires;
+    my Instant $expires;
     with $expires_in {
         $expires = now + $expires_in;
     }
-    $promise.keep: Ej::OAuth::Authorization.new: :token($access_token),
+    $promise.keep: Ej::OAuth::Authorization.new: :oauth(self),
+                                                 :token($access_token),
                                                  :type($token_type),
+                                                 :refresh-token($refresh_token),
                                                  :$expires,
                                                  :scope($scope.split(' ', :skip-empty).Set),
                                                  :scope-asked($promise.scope),
@@ -177,12 +277,12 @@ multi method validate-authorization-promise(::?CLASS:D:
 
 multi method access-token-request(::?CLASS:D:
                                   'refresh_token',
-                                  Str:D :$refresh_token!,
+                                  Str:D :$refresh-token!,
                                   :@scope where { self.test-scope($_.all) },
         --> Hash
                                   ) is implementation-detail
 {
-    samewith :grant-type<refresh_token>, :$refresh_token, :scope(@scope.join(' '));
+    samewith :grant-type<refresh_token>, :refresh_token($refresh-token), :scope(@scope.join(' '));
 }
 multi method access-token-request(::?CLASS:D:
                                   'client_credentials',

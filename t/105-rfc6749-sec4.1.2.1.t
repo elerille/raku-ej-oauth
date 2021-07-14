@@ -30,12 +30,12 @@ my OAuth:D $oauth .= new: :scope(MyScope),
                           :$endpoint-redirection,
                           client-id => $expected-client-id,
                           client-secret => $expected-client-secret,
+                          client-type => Confidential,
                           ;
 
 my MyScope:D @scope = A, B;
 
-my $authorization = $oauth.authorization: Confidential,
-                                          :@scope;
+my $authorization = $oauth.authorization: :@scope;
 
 my $state = URL.new($authorization.url).query<state>;
 subtest "without state", {
@@ -96,7 +96,7 @@ my @test =
 for @test -> (%test, %expected) {
     subtest "Test receive error { %test.gist }", {
         plan 6;
-        my $authorization = $oauth.authorization: Confidential, :@scope;
+        my $authorization = $oauth.authorization: :@scope;
         my $state = URL.new($authorization.url).query<state>;
 
         $oauth.authorization-response(:$state, |%test);

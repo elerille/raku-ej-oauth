@@ -5,7 +5,7 @@ use Cro::HTTP::Router;
 
 use Ej::OAuth :ALL;
 
-plan 9;
+plan 12;
 
 #my Int:D $server-port = get-unused-port;
 #my Int:D $client-port = get-unused-port;
@@ -16,6 +16,7 @@ my Str:D $expected-client-id = "MyClIeNtId";
 my Str:D $expected-client-secret = "MyClIeNtSeCrEt";
 my Str:D $expected-code = "MyCoDe";
 my Str:D $expected-token = "MyToKeN";
+my Str:D $expected-refresh-token = "MyToKeN";
 
 enum MyScope <A B C>;
 
@@ -32,15 +33,18 @@ unlike $oauth.gist, /$expected-client-secret/, "client-secret doesn't show in OA
 unlike $oauth.Str, /$expected-client-secret/, "client-secret doesn't show in OAuth.Str";
 unlike $oauth.raku, /$expected-client-secret/, "client-secret doesn't show in OAuth.raku";
 
-my $r = Ej::OAuth::Authorization.new: :token($expected-token), :type<bearer>, :scope(Set.new), :scope-asked(Set.new);
+my $r = Ej::OAuth::Authorization.new: :$oauth, :token($expected-token), :type<bearer>,
+                                      :refresh-token($expected-refresh-token), :scope(Set.new), :scope-asked(Set.new);
 
 is $r.token, $expected-token, "token is realy stored";
 unlike $r.gist, /$expected-token/, "token doesn't show in Authorization.gist";
 unlike $r.Str, /$expected-token/, "token doesn't show in Authorization.Str";
 unlike $r.raku, /$expected-token/, "token doesn't show in Authorization.raku";
 
-
-flunk "TODO: Test if refresh-token doesn't show in *.gist, *.Str and *.raku";
+is $r.refresh-token, $expected-refresh-token, "refresh-token is realy stored";
+unlike $r.gist, /$expected-refresh-token/, "refresh-token doesn't show in Authorization.gist";
+unlike $r.Str, /$expected-refresh-token/, "refresh-token doesn't show in Authorization.Str";
+unlike $r.raku, /$expected-refresh-token/, "refresh-token doesn't show in Authorization.raku";
 
 
 done-testing;

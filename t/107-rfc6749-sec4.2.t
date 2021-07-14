@@ -10,7 +10,7 @@ use URI::Encode;
 
 use Ej::OAuth :ALL;
 
-plan 3;
+plan 10;
 
 my Int:D $server-port = get-unused-port;
 #my Int:D $client-port = get-unused-port;
@@ -30,15 +30,12 @@ my OAuth:D $oauth .= new: :scope(MyScope),
                           :$endpoint-redirection,
                           client-id => $expected-client-id,
                           client-secret => $expected-client-secret,
+                          client-type => Public,
                           ;
-
-my MyScope:D @scopeA = A, B;
-my MyScope:D @scopeB = ();
 
 subtest "standard request", {
     plan 6;
-    my $authorization = $oauth.authorization: Public,
-                                              :scope(A, B);
+    my $authorization = $oauth.authorization: :scope(A, B);
     my URL:D $url .= new: $authorization.url;
 
     is URL.new(|$url.Hash, query => {}).Str,
@@ -54,7 +51,7 @@ subtest "standard request", {
     is-deeply uri_decode_component($url.query<scope>).split(' ', :skip-empty).Set, <A B>.Set, "Scope is corect";
 }
 {
-    my $authorization = $oauth.authorization: Public;
+    my $authorization = $oauth.authorization;
     my URL:D $url .= new: $authorization.url;
     nok $url.query<scope>:exists, "Query not contains scope if not necessary";
 }
@@ -65,8 +62,7 @@ subtest "standard request", {
                                client-id => $expected-client-id,
                                client-secret => $expected-client-secret,
                                ;
-    my $authorization = $oauth2.authorization: Public,
-                                               :scope(A, B);
+    my $authorization = $oauth2.authorization: :scope(A, B);
     my $state = URL.new($authorization.url).query<state>;
     my URL:D $url .= new: $authorization.url;
 
@@ -79,8 +75,7 @@ dies-ok { $oauth.authorization-response: :sccess_token($expected-token), :token_
 
 subtest "Response without access_token", {
     plan 2;
-    my $authorization = $oauth.authorization: Public,
-                                              :scope(A, B);
+    my $authorization = $oauth.authorization: :scope(A, B);
     my $state = URL.new($authorization.url).query<state>;
     lives-ok { $oauth.authorization-response: :$state, :token_type<bearer> },
              "Response not emit an error";
@@ -89,8 +84,7 @@ subtest "Response without access_token", {
 
 subtest "Response without token_type", {
     plan 2;
-    my $authorization = $oauth.authorization: Public,
-                                              :scope(A, B);
+    my $authorization = $oauth.authorization: :scope(A, B);
     my $state = URL.new($authorization.url).query<state>;
     lives-ok { $oauth.authorization-response: :$state, :access_token($expected-token) },
              "Response not emit an error";
@@ -99,8 +93,7 @@ subtest "Response without token_type", {
 
 subtest "Response without access_token, token_type", {
     plan 2;
-    my $authorization = $oauth.authorization: Public,
-                                              :scope(A, B);
+    my $authorization = $oauth.authorization: :scope(A, B);
     my $state = URL.new($authorization.url).query<state>;
     lives-ok { $oauth.authorization-response: :$state },
              "Response not emit an error";
@@ -109,23 +102,21 @@ subtest "Response without access_token, token_type", {
 
 subtest "Minimal valid response", {
     plan 3;
-    my $authorization = $oauth.authorization: Public,
-                                              :scope(A,);
+    my $authorization = $oauth.authorization: :scope(A,);
     my $state = URL.new($authorization.url).query<state>;
     lives-ok { $oauth.authorization-response: :$state, :access_token($expected-token), :token_type<bearer> },
              "Response not emit an error";
     is $authorization.status, Kept, "Authorization is brokt";
     my $r = $authorization.result;
     is-deeply $r,
-              Ej::OAuth::Authorization.new(:token($expected-token), :type("bearer"), :expires(Any), :scope(set()),
-                                           :scope-asked(A.Set)),
+              Ej::OAuth::Authorization.new(:$oauth, :token($expected-token), :type("bearer"), :expires(Instant),
+                                           :scope(set()), :scope-asked(A.Set)),
               "Authorization is valid";
 }
 
 subtest "Response with expires_in", {
     plan 3;
-    my $authorization = $oauth.authorization: Public,
-                                              :scope(A,);
+    my $authorization = $oauth.authorization: :scope(A,);
     my $state = URL.new($authorization.url).query<state>;
     lives-ok {
                  $oauth.authorization-response: :$state, :access_token($expected-token), :token_type<bearer>,
@@ -139,8 +130,7 @@ subtest "Response with expires_in", {
 
 subtest "Response with other scope", {
     plan 4;
-    my $authorization = $oauth.authorization: Public,
-                                              :scope(A,);
+    my $authorization = $oauth.authorization: :scope(A,);
     my $state = URL.new($authorization.url).query<state>;
     lives-ok {
                  $oauth.authorization-response: :$state, :access_token($expected-token), :token_type<bearer>,
